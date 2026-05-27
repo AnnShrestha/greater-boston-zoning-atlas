@@ -1,4 +1,4 @@
-# MASS TIGER — Massachusetts Zoning Atlas ETL Pipeline
+# MAPC Greater Boston Zoning Atlas ETL Pipeline
 
 A production-quality **spatial ETL pipeline** that loads the [MAPC Greater Boston Zoning Atlas](https://www.mapc.org/planning101/zoning-atlas/) into a **PostGIS database on AWS RDS**, with full geometry validation, CRS reprojection, QA/QC logging, and an audit trail for every run.
 
@@ -28,7 +28,7 @@ The Metropolitan Area Planning Council (MAPC) publishes a **Zoning Atlas** cover
 | Database | PostgreSQL 16 + PostGIS on AWS RDS (db.t4g.micro) |
 | ORM / loader | SQLAlchemy 2.0 + GeoAlchemy2 |
 | QA/QC | 88 automated checks → Python logging + `mapc.qaqc_log` table |
-| Config | `python-dotenv` — credentials never hardcoded |
+| Config | `python .env` — credentials never hardcoded |
 
 **Storage CRS:** EPSG:26986 — NAD83 / Massachusetts Mainland (metres) — chosen for accurate area and distance calculations in Massachusetts.
 
@@ -39,32 +39,32 @@ The Metropolitan Area Planning Council (MAPC) publishes a **Zoning Atlas** cover
 ## Project Structure
 
 ```
-MASS_TIGER/
-├── pipeline.py              # Main orchestrator — run this
-├── config.py                # All configuration, secrets via env vars
+greater-boston-zoning-atlas/
+├── pipeline.py              
+├── config.py               
 ├── requirements.txt
 │
 ├── etl/
-│   ├── extract.py           # Load shapefile from local disk (with zip support)
-│   ├── transform.py         # Geometry repair, reprojection, derived fields
-│   ├── load.py              # Write to PostGIS; creates schema/tables if needed
-│   └── qaqc.py              # 88 QA/QC checks, pre- and post-load
+│   ├── extract.py           
+│   ├── transform.py         
+│   ├── load.py              
+│   └── qaqc.py              
 │
 ├── sql/
-│   └── schema.sql           # PostGIS DDL reference (pipeline auto-creates tables)
+│   └── schema.sql           
 │
 ├── docs/
-│   ├── schema.md                # Column reference + example queries
-│   └── METADATA_STANDARDS.md   # FGDC CSDGM-aligned metadata policy
+│   ├── schema.md                
+│   └── METADATA_STANDARDS.md   
 │
 ├── tests/
-│   └── test_pipeline.py     # Unit tests (no DB required)
+│   └── test_pipeline.py     
 │
 ├── data/
-│   └── raw/                 # Place source shapefile/zip here (gitignored)
+│   └── raw/                 
 │
 └── logs/
-    └── etl.log              # Rotating log file (gitignored)
+    └── etl.log            
 ```
 
 ---
@@ -75,24 +75,24 @@ MASS_TIGER/
  [MAPC Shapefile]
        │
        ▼
-  extract.py          ← auto-detects .zip, .shp, .geojson in data/raw/
+  extract.py          
        │
        ▼
-  transform.py        ← repair geometries · reproject · add area/centroid fields
+  transform.py        
        │
        ▼
-  qaqc.py (pre-load)  ← 88 checks: feature count, nulls, CRS, geometry validity
+  qaqc.py (pre-load)  
        │
        ▼
-  load.py             ← TRUNCATE + append to PostGIS (preserves geometry type)
+  load.py             
        │
        ▼
-  qaqc.py (post-load) ← verify row count and ST_IsValid in PostGIS
+  qaqc.py (post-load) 
        │
        ▼
- [mapc.zoning_atlas]  ← AWS RDS PostGIS
- [mapc.etl_runs]      ← one row per pipeline run
- [mapc.qaqc_log]      ← one row per QA/QC check per run
+ [mapc.zoning_atlas]  
+ [mapc.etl_runs]      
+ [mapc.qaqc_log]      ←
 ```
 
 ### Load Strategy: Full Refresh vs. Incremental
@@ -119,8 +119,8 @@ For larger datasets where a full reload is impractical — MAPC's Parcel Databas
 ### 1. Install dependencies
 
 ```bash
-git clone https://github.com/your-username/mass-tiger.git
-cd mass-tiger
+git clone https://github.com/AnnShrestha/greater-boston-zoning-atlas.git
+cd greater-boston-zoning-atlas
 pip install -r requirements.txt
 ```
 
@@ -154,7 +154,7 @@ The extract step auto-detects and handles both `.zip` and `.shp` formats.
 python pipeline.py
 
 # Dry run — validates everything but skips the DB write
-DRY_RUN=true python pipeline.py
+$DRY_RUN="true"; python pipeline.py
 ```
 
 On first run, the pipeline automatically creates the `mapc` schema and all three tables (`zoning_atlas`, `etl_runs`, `qaqc_log`) in PostGIS — no manual SQL required.
@@ -299,17 +299,18 @@ WHERE muni = 'Cambridge';
 
 **QA/QC history for a specific run:**
 ```sql
-SELECT check_name, status, value, threshold, message
+SELECT check_name, passed, value, threshold, message
 FROM mapc.qaqc_log
 WHERE run_id = 'your-run-id-here'
-ORDER BY status, check_name;
+ORDER BY passed, check_name;
 ```
 
 **ETL run history:**
 ```sql
 SELECT run_id, row_count, completed_at
 FROM mapc.etl_runs
-ORDER BY completed_at DESC;
+ORDER BY completed_at DESC
+LIMIT 1;
 ```
 
 ---
