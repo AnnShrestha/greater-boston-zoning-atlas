@@ -92,7 +92,7 @@ greater-boston-zoning-atlas/
        ▼
  [mapc.zoning_atlas]  
  [mapc.etl_runs]      
- [mapc.qaqc_log]      ←
+ [mapc.qaqc_log]     
 ```
 
 ### Load Strategy: Full Refresh vs. Incremental
