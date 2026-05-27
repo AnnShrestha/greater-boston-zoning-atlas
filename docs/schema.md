@@ -14,24 +14,33 @@
 Primary data table. One row per zoning district polygon in the MAPC Zoning Atlas (101 Greater Boston municipalities).
 
 | Column | Type | Nullable | Description |
-|--------|------|----------|-------------|
-| `id` | SERIAL | NO | Surrogate primary key (auto-generated) |
-| `muni_id` | TEXT | YES | Municipality numeric identifier |
-| `muni_name` | TEXT | YES | Municipality name (e.g. `Cambridge`) |
-| `zo_id` | TEXT | YES | Unique zoning district ID |
-| `zo_abbr` | TEXT | YES | Zoning abbreviation (e.g. `R1`, `B2`, `IND`) |
-| `zo_name` | TEXT | YES | Full district name |
-| `zo_usety` | TEXT | YES | Use type category: `Residential`, `Commercial`, `Industrial`, `Mixed`, `Other` |
-| `multifam` | TEXT | YES | Multifamily housing permitted in this district |
-| `aff_req` | TEXT | YES | Affordable housing requirement |
-| `by_right` | TEXT | YES | Multifamily allowed by-right (vs. special permit) |
-| `area_m2` | NUMERIC(18,2) | YES | District area in square metres (computed in EPSG:26986) |
-| `area_acres` | NUMERIC(12,4) | YES | District area in acres |
-| `centroid_x` | NUMERIC(12,2) | YES | Centroid easting (EPSG:26986) |
-| `centroid_y` | NUMERIC(12,2) | YES | Centroid northing (EPSG:26986) |
-| `etl_run_id` | TEXT | NO | UUID of the pipeline run that loaded this row |
-| `etl_loaded_at` | TIMESTAMPTZ | YES | UTC timestamp when this row was loaded |
-| `geometry` | GEOMETRY(MultiPolygon, 26986) | YES | District boundary in EPSG:26986 |
+| :--- | :--- | :--- | :--- |
+| **id** | SERIAL | NO | Surrogate primary key (auto-generated) |
+| **muni_id** | DOUBLE PRECISION | YES | Municipality numeric identifier |
+| **muni** | TEXT | YES | Municipality name/abbreviation (e.g., Cambridge) |
+| **zo_code** | TEXT | YES | System-generated zoning code |
+| **zo_name** | TEXT | YES | Full name of the local zoning district |
+| **zo_usety** | BIGINT | YES | Standardized MAPC use type code (categorical integer) |
+| **zo_abbr** | TEXT | YES | Local zoning abbreviation (e.g., R1, B2) |
+| **zo_usede** | TEXT | YES | Standardized use description |
+| **mf_notes** | TEXT | YES | Qualitative notes regarding multifamily allowances |
+| **mulfam2** | BIGINT | YES | Duplex allowance code (1=By-Right, 2=Special Permit, 0=Prohibited) |
+| **mulfam3_4** | BIGINT | YES | 3 to 4 unit housing density allowance code |
+| **mulfam5_19** | BIGINT | YES | 5 to 19 unit housing density allowance code |
+| **mulfam20_** | BIGINT | YES | 20+ unit housing density allowance code |
+| **minlotsize** | DOUBLE PRECISION | YES | Minimum required lot size per municipal bylaws |
+| **pctlotcov** | DOUBLE PRECISION | YES | Maximum allowed percentage of lot coverage |
+| **maxflrs** | DOUBLE PRECISION | YES | Maximum allowed height in structural floors |
+| **maxheight** | DOUBLE PRECISION | YES | Maximum allowed building height |
+| **maxdu** | DOUBLE PRECISION | YES | Maximum dwelling units baseline |
+| **far** | DOUBLE PRECISION | YES | Floor Area Ratio (total floor area relative to plot size) |
+| **geometry** | GEOMETRY(MultiPolygon, 26986) | YES | Spatial boundary reprojected to Mass Mainland State Plane |
+| **area_m2** | DOUBLE PRECISION | YES | District area calculated in square meters |
+| **area_acres**| DOUBLE PRECISION | YES | District area calculated in acres |
+| **centroid_x** | DOUBLE PRECISION | YES | Calculated polygon centroid easting coordinate |
+| **centroid_y** | DOUBLE PRECISION | YES | Calculated polygon centroid northing coordinate |
+| **etl_run_id** | TEXT | NO | Execution UUID tracing back to `mapc.etl_runs` |
+| **etl_loaded_at**| TEXT | YES | Timestamp tracking exactly when data hit the table |
 
 **Indexes:**
 - `idx_zoning_atlas_geom` — GIST on `geometry` (spatial queries)
@@ -82,12 +91,17 @@ FROM mapc.etl_runs
 ORDER BY completed_at DESC
 LIMIT 1;
 
--- All failed QA checks for the latest run
+-- All failed QA checks for the absolute latest single run
 SELECT q.check_name, q.value, q.threshold, q.note
 FROM mapc.qaqc_log q
-JOIN mapc.etl_runs r ON r.run_id = q.run_id
 WHERE NOT q.passed
-ORDER BY r.completed_at DESC, q.critical DESC;
+  AND q.run_id = (
+      SELECT run_id 
+      FROM mapc.etl_runs 
+      ORDER BY completed_at DESC 
+      LIMIT 1
+  )
+ORDER BY q.check_name;
 
 -- Zoning districts by use type
 SELECT zo_usety, COUNT(*), ROUND(SUM(area_acres)::numeric, 0) AS total_acres
@@ -96,10 +110,10 @@ GROUP BY zo_usety
 ORDER BY total_acres DESC;
 
 -- Multifamily-allowed zones within Cambridge
-SELECT zo_id, zo_abbr, zo_name, area_acres
+SELECT zo_code, zo_abbr, zo_name, area_acres
 FROM mapc.zoning_atlas
-WHERE muni_name = 'Cambridge'
-  AND multifam = 'Yes'
+WHERE muni = 'Cambridge'
+  AND (mulfam2 > 0 OR mulfam3_4 > 0 OR mulfam5_19 > 0 OR mulfam20_ > 0)
 ORDER BY area_acres DESC;
 
 -- Export to GeoJSON (WGS84) for web map use
@@ -108,9 +122,9 @@ SELECT json_build_object(
     'features', json_agg(ST_AsGeoJSON(t.*)::json)
 )
 FROM (
-    SELECT zo_id, muni_name, zo_abbr, zo_usety, area_acres,
+    SELECT zo_code, muni, zo_abbr, zo_usety, area_acres,
            ST_Transform(geometry, 4326) AS geometry
     FROM mapc.zoning_atlas
-    WHERE muni_name = 'Somerville'
+    WHERE muni = 'Somerville'
 ) t;
 ```
